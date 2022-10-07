@@ -51,6 +51,14 @@ function(MakeCPIO output_name input_files)
         "bash;-c;cpio ${cpio_reproducible_flag} --quiet --create -H newc --file=${CMAKE_CURRENT_BINARY_DIR}/archive.${output_name}.cpio;&&"
     )
     foreach(file IN LISTS input_files)
+        # Strip symbols from CAmkES components; they are not used
+        # and can take up substantial space in the generated image.
+        if(file MATCHES "_group_bin$")
+            get_filename_component(basename ${file} NAME)
+            set(COPY_OP "${CROSS_COMPILER_PREFIX}objcopy -S ${file} ${basename}")
+        else()
+            set(COPY_OP "cp -a ${file} .")
+        endif()
         # Try and generate reproducible cpio meta-data as we do this:
         # - touch -d @0 file sets the modified time to 0
         # - --owner=root:root sets user and group values to 0:0
@@ -58,7 +66,7 @@ function(MakeCPIO output_name input_files)
         list(
             APPEND
                 commands
-                "bash;-c; mkdir -p temp_${output_name} && cd temp_${output_name} && cp -a ${file} . && touch -d @0 `basename ${file}` && echo `basename ${file}` | cpio --append ${cpio_reproducible_flag} --owner=+0:+0 --quiet -o -H newc --file=${CMAKE_CURRENT_BINARY_DIR}/archive.${output_name}.cpio && rm `basename ${file}` && cd ../ && rmdir temp_${output_name};&&"
+                "bash;-c;cd `dirname ${file}` && mkdir -p temp_${output_name} && cd temp_${output_name} && ${COPY_OP} && touch -d @0 `basename ${file}` && echo `basename ${file}` | cpio --append ${cpio_reproducible_flag} --owner=root:root --quiet -o -H newc --file=${CMAKE_CURRENT_BINARY_DIR}/archive.${output_name}.cpio && rm `basename ${file}` && cd ../ && rmdir temp_${output_name};&&"
         )
     endforeach()
     list(APPEND commands "true")

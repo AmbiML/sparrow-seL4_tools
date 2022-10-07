@@ -108,7 +108,9 @@ _start1: /* a0 must hold current hard ID passed by bootloader */
 .option pop
 
   li s0, CONFIG_FIRST_HART_ID
-  bne  a0, s0, secondary_harts
+
+  // FIXME - This hack is to force BBL to load when running on hart 1
+  //bne  a0, s0, secondary_harts
 
   la sp, (elfloader_stack_alloc + BIT(12))
   /* The C code expects the registers to be set up as:

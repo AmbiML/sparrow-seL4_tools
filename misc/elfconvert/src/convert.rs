@@ -14,9 +14,9 @@
 
 /*!
  * Functions to convert a given ELF formatted binary into a format suitable for
- * loading in KataOS.
+ * loading in CantripOS.
  *
- * The format of a KataOS binary consists of a series of sections each prefixed
+ * The format of a CantripOS binary consists of a series of sections each prefixed
  * by the following SectionHeader:
  *    magic: u64    Magic number
  *    vaddr: u64    Virtual address of section (bytes)
@@ -78,7 +78,7 @@ const SECTION_EXEC: u32 = 0x4; // Data are executable
 const SECTION_ENTRY: u32 = 0x8; // Entry point valid
 
 /// Given a set of ELF flags, convert into a set of flags for a section
-/// recognizable by the KataOS ProcessManager's loader.
+/// recognizable by the CantripOS ProcessManager's loader.
 fn to_section_flags(elf_flags: xmas_elf::program::Flags) -> u32 {
     let mut flags: u32 = 0;
 
@@ -209,7 +209,7 @@ impl From<std::io::Error> for ConversionError {
     }
 }
 
-/// Converts an ELF-format ML model into KataOS' loadable format.
+/// Converts an ELF-format ML model into CantripOS' loadable format.
 ///
 /// Returns the number of bytes written.
 pub fn model(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionError> {
@@ -275,7 +275,7 @@ pub fn model(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionErr
     Ok(output_file.stream_position()?)
 }
 
-/// Converts an ELF-format application binary into KataOS' loadable format.
+/// Converts an ELF-format application binary into CantripOS' loadable format.
 ///
 /// Returns the number of bytes written.
 pub fn application(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionError> {

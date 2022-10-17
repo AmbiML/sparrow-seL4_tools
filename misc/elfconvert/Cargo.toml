@@ -21,4 +21,4 @@ edition = "2018"
 clap = { version = "3.2", features = [ "derive" ] }
 log = { version = "0.4" }
 stderrlog = { version = "0.5" }
-xmas-elf = { path = "../../../../crates/xmas-elf" }
+xmas-elf = { git = "https://github.com/nrc/xmas-elf" }

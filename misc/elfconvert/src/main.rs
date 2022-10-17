@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Convert ELF files to the KataOS format used for loading models and
+//! Convert ELF files to the CantripOS format used for loading models and
 //! applications.
 
 use clap::Parser;

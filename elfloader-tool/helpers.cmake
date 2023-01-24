@@ -11,3 +11,8 @@ cmake_minimum_required(VERSION 3.7.2)
 function(SetElfloaderRootserversLast)
     set(ElfloaderRootserversLast ON CACHE BOOL "" FORCE)
 endfunction()
+
+# Hook for sel4test to effect shoehorn work.
+function(SetElfloaderFudgeFactor FUDGE)
+    set(ElfloaderFudgeFactor ${FUDGE} CACHE STRING "" FORCE)
+endfunction()

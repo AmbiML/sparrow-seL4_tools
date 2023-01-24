@@ -91,6 +91,12 @@ config_option(
     DEPENDS KernelArchArmV8a
 )
 
+config_option(
+    ElfLoaderFudgeFactor ELFLOADER_FUDGE_FACTOR
+    "Additional space for shoehorn to reserve"
+    DEFAULT OFF
+)
+
 add_config_library(elfloader "${configure_string}")
 
 add_compile_options(-D_XOPEN_SOURCE=700 -ffreestanding -Wall -Werror -W -Wextra)
@@ -294,6 +300,9 @@ else()
     set(PLATFORM_SIFT "${CMAKE_TOOL_HELPERS_DIR}/platform_sift.py")
     set(ELF_SIFT "${CMAKE_TOOL_HELPERS_DIR}/elf_sift.py")
     set(SHOEHORN "${CMAKE_TOOL_HELPERS_DIR}/shoehorn.py")
+    if(ElfloaderFudgeFactor)
+        set(SHOEHORN_OPTIONS "--fudge-factor=${ElfloaderFudgeFactor}")
+    endif()
     set(ARCHIVE_O "${CMAKE_CURRENT_BINARY_DIR}/archive.o")
     add_custom_command(
         OUTPUT "${IMAGE_START_ADDR_H}" "${PLATFORM_INFO_H}"
@@ -309,7 +318,7 @@ else()
             # The `shoehorn` tool computes a reasonable image start address. It calls
             # `elf_sift` to obtain details about where the extracted payloads will be
             # and how big they are.
-            "${SHOEHORN}" "${platform_yaml}" "${ARCHIVE_O}" > "${IMAGE_START_ADDR_H}"
+            "${SHOEHORN}" ${SHOEHORN_OPTIONS} "${platform_yaml}" "${ARCHIVE_O}" > "${IMAGE_START_ADDR_H}"
         VERBATIM
         DEPENDS
             # First command's dependencies

@@ -18,6 +18,10 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
+# TODO(sleffler): Remove thread_local version pin from the underlying dependency
+# when we clean up the nightly toolchain.
+thread_local = "=1.1.4"
+
 clap = { version = "3.2", features = [ "derive" ] }
 log = { version = "0.4" }
 stderrlog = { version = "0.5" }

@@ -23,6 +23,7 @@ edition = "2018"
 thread_local = "=1.1.4"
 
 clap = { version = "3.2", features = [ "derive" ] }
+crc = { version = "1.4.0", default-features = false }
 log = { version = "0.4" }
 stderrlog = { version = "0.5" }
 xmas-elf = { git = "https://github.com/nrc/xmas-elf" }

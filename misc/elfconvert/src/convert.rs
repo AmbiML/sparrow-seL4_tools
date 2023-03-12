@@ -48,6 +48,8 @@
 use core::mem::size_of;
 use core::ptr;
 use core::slice;
+use crc::crc32;
+use crc::Hasher32;
 use log::*;
 use std::fs::File;
 use std::io::Seek;
@@ -251,12 +253,14 @@ pub fn model(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionErr
                 msize
             );
 
+            let mut digest = crc32::Digest::new(crc32::IEEE);
+            digest.write(bytes);
             let section = SectionHeader::new(
                 seg.virtual_addr(),
                 flags,
                 entry,
                 align,
-                /*crc=*/ 0, // TODO(sleffler) calculate
+                digest.sum32(),
                 fsize,
                 msize,
             );
@@ -302,13 +306,14 @@ pub fn application(elf: &ElfFile, output_file: &mut File) -> Result<u64, Convers
         }
 
         if let SegmentData::Undefined(bytes) = seg.get_data(elf)? {
-            // TODO(sleffler): calculate the CRC32 checksum for each section
+            let mut digest = crc32::Digest::new(crc32::IEEE);
+            digest.write(bytes);
             let header = SectionHeader::new(
                 seg.virtual_addr(),
                 flags,
                 entry,
                 align,
-                /*crc=*/ 0,
+                digest.sum32(),
                 fsize,
                 msize,
             );

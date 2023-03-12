@@ -190,9 +190,9 @@ impl ConversionError {
     pub fn as_str(&self) -> String {
         match &*self {
             ConversionError::SegmentOutsideTCM(vaddr) =>
-                format!("segment at {:x} outside TCM", vaddr),
+                format!("segment at {:#x} outside TCM", vaddr),
             ConversionError::SectionTooBig(vaddr, size) =>
-                format!("section at {:x} too big for TCM (size was {})", vaddr, size),
+                format!("section at {:#x} too big for TCM (size was {})", vaddr, size),
             ConversionError::IOError(err) => err.to_string(),
             ConversionError::OtherError(str) => String::from(*str),
         }
@@ -216,7 +216,7 @@ impl From<std::io::Error> for ConversionError {
 /// Returns the number of bytes written.
 pub fn model(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionError> {
     let entry = elf.header.pt2.entry_point();
-    info!("ELF entry point is {:x}", entry);
+    info!("ELF entry point is {:#x}", entry);
 
     for seg in elf.program_iter().filter(is_load_type) {
         let fsize = seg.file_size() as usize;
@@ -226,7 +226,7 @@ pub fn model(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionErr
         let vaddr = seg.virtual_addr();
         let segment_name = vaddr_as_str(vaddr);
 
-        debug!("Processing new section [vaddr=0x{:x}, fsize=0x{:x}, msize=0x{:x}, align=0x{:x}, flags=0x{:b}]",
+        debug!("Processing new section [vaddr={:#x}, fsize={:#x}, msize={:#x}, align={:#x}, flags={:#b}]",
                vaddr, fsize, msize, align, flags);
         if fsize > TCM_SIZE {
             return Err(ConversionError::SectionTooBig(vaddr, fsize));
@@ -239,14 +239,14 @@ pub fn model(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionErr
 
             if seg.virtual_addr() == TEXT_VADDR {
                 debug!(
-                    "Marking segment {} as entrypoint [vaddr={:x}, entry={:x}]",
+                    "Marking segment {} as entrypoint [vaddr={:#x}, entry={:#x}]",
                     segment_name, vaddr, entry
                 );
                 flags |= SECTION_ENTRY;
             }
 
             debug!(
-                "Processing {} segment [len={}, addr=0x{:x}, msize={}]",
+                "Processing {} segment [len={}, addr={:#x}, msize={}]",
                 segment_name,
                 bytes.len(),
                 vaddr,
@@ -267,7 +267,7 @@ pub fn model(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionErr
 
             section.write(output_file, bytes)?;
             info!(
-                "Wrote {} segment of {} bytes at 0x{:x} msize {}",
+                "Wrote {} segment of {} bytes at {:#x} msize {}",
                 segment_name,
                 bytes.len(),
                 seg.virtual_addr(),
@@ -284,7 +284,7 @@ pub fn model(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionErr
 /// Returns the number of bytes written.
 pub fn application(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionError> {
     let entry = elf.header.pt2.entry_point();
-    info!("ELF entry point is {:x}", entry);
+    info!("ELF entry point is {:#x}", entry);
 
     // Iterate through all ELF sections, filtering out anything that isn't
     // loadable.
@@ -295,13 +295,13 @@ pub fn application(elf: &ElfFile, output_file: &mut File) -> Result<u64, Convers
         let align = seg.align() as usize;
         let mut flags = to_section_flags(seg.flags());
 
-        debug!("Processing new section [vaddr=0x{:x}, fsize=0x{:x}, msize=0x{:x}, align=0x{:x}, flags=0x{:b}]",
+        debug!("Processing new section [vaddr={:#x}, fsize={:#x}, msize={:#x}, align={:#x}, flags={:#b}]",
                vaddr, fsize, msize, align, flags);
 
         // If the entry point for this application is in this section, ensure we
         // mark as such in the flags.
         if vaddr <= entry && entry < vaddr + (msize as u64) {
-            debug!("Marking as entrypoint [vaddr={:x}, entry={:x}]", vaddr, entry);
+            debug!("Marking as entrypoint [vaddr={:#x}, entry={:#x}]", vaddr, entry);
             flags |= SECTION_ENTRY;
         }
 
@@ -321,7 +321,7 @@ pub fn application(elf: &ElfFile, output_file: &mut File) -> Result<u64, Convers
             header.write(output_file, bytes)?;
 
             info!(
-                "Wrote segment of {} bytes at 0x{:x} msize {}",
+                "Wrote segment of {} bytes at {:#x} msize {}",
                 fsize,
                 seg.virtual_addr(),
                 msize

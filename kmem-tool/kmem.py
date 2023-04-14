@@ -108,6 +108,9 @@ def print_summary(sizes: Dict, details=False) -> None:
         # Copy Regions are immidately freed to create a hole in virtual memory
         total -= sizes[component_name].get(FrameType.COPYREGION, 0)
 
+        if total == 0 and not details:
+            continue
+
         grand_total += total
         print(
             pad_right(component_name, col_widths[0]) +

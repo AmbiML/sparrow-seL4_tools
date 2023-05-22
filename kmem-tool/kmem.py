@@ -28,11 +28,24 @@ except ModuleNotFoundError as e:
               "($ROOTDIR/cantrip/projects/capdl/python-capdl-tool)")
     raise
 
-from capdl.Object import Frame  # pylint: disable=import-error
+from capdl.Object import Frame, register_object_sizes  # pylint: disable=import-error
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# TODO(sleffler): does pickle have target cpu?
+riscv32_object_sizes = {
+    'seL4_TCBObject': 9,
+    'seL4_RTReplyObject': 4,
+    'seL4_EndpointObject': 4,
+    'seL4_NotificationObject': 5,  # MCS, !MCS = 4
+    'seL4_SmallPageObject': 12,
+    'seL4_LargePageObject': 22,
+    'seL4_ASID_Pool': 12,
+    'seL4_Slot': 4,
+    'seL4_PageTableObject': 12,
+    'seL4_PageDirectoryObject': 12,
+}
 
 def main():
     parser = argparse.ArgumentParser(description='')
@@ -44,17 +57,29 @@ def main():
                         The file is generated as part of the cantrip build
                         process.
                         ''')
+    parser.add_argument('--kernel',
+                        default=False,
+                        action='store_true',
+                        help='''Include kernel data structures in analysis.''')
     parser.add_argument('--details',
                         default=False,
                         action='store_true',
                         help='''Change the output format to have a per frame
                         type breakdown.''')
+    parser.add_argument('--verbose',
+                        default=False,
+                        action='store_true',
+                        help='''Enable messages during analysis phase.''')
 
     args = parser.parse_args()
 
     allocator_state = pickle.load(args.object_state)
 
-    sizes = accumulate_frame_sizes(allocator_state)
+    register_object_sizes(riscv32_object_sizes)
+
+    sizes = accumulate_obj_sizes(allocator_state,
+                                 kernel=args.kernel,
+                                 verbose=args.verbose)
     print_summary(sizes, details=args.details)
 
     return 0
@@ -70,32 +95,51 @@ class FrameType(enum.Enum):
     MMIO = enum.auto()
 
 
-def accumulate_frame_sizes(allocator_state) -> Dict:
+def accumulate_obj_sizes(allocator_state, kernel=False, verbose=False) -> Dict:
     ret_sizes = {}
     for component in allocator_state.obj_space.labels.keys():
-        for frame in allocator_state.obj_space.labels.get(component):
-            if not isinstance(frame, Frame):
+        for obj in allocator_state.obj_space.labels.get(component):
+            if component is None:
+                # e.g. BOOTINFO_FRAME
+                if verbose:
+                    print("SKIP", obj.name)
                 continue
-            ft = frame_type(frame.name, frame.fill, frame.paddr)
+            component_name = component
 
-            if ft == FrameType.COPYREGION or component is None:
-                component_name = get_copy_region_component(frame.name)
+            if isinstance(obj, Frame):
+                # Page frame object
+                ft = frame_type(obj.name, obj.fill, obj.paddr)
+                if ft == FrameType.COPYREGION:
+                    # NB: for C templates, Rust templates have no backing frames
+                    component_name = get_copy_region_component(obj.name)
+                obj_name = ft
+                size = obj.size
             else:
-                component_name = component
+                # seL4 kernel object
+                if not kernel:
+                    continue
+                obj_name = obj.name
+
+                size = obj.get_size_bits()
+                if size is None:
+                    if verbose:
+                        print("SKIP", obj.name)
+                    continue
+                size = 1 << size
 
             if component_name not in ret_sizes:
                 ret_sizes[component_name] = {}
-            if ft not in ret_sizes[component_name]:
-                ret_sizes[component_name][ft] = 0
-            ret_sizes[component_name][ft] += frame.size
+            if obj_name not in ret_sizes[component_name]:
+                ret_sizes[component_name][obj_name] = 0
+            ret_sizes[component_name][obj_name] += size
     return ret_sizes
 
 
 def print_summary(sizes: Dict, details=False) -> None:
     col_widths = (
         25,  # component name
-        20,  # frame type
-        15,  # size in KiB
+        28,  # object type
+        12,  # size in KiB
         20,  # size in bytes
     )
     grand_total = 0
@@ -118,15 +162,15 @@ def print_summary(sizes: Dict, details=False) -> None:
             pad_left(f"{to_kib(total)} KiB", col_widths[2]) +
             pad_left(str(total), col_widths[3]))
         if details:
-            for unused_ft_name, ft in sorted(FrameType.__members__.items(),
-                                             key=lambda x: x[0]):
-                if ft in sizes[component_name]:
-                    size = sizes[component_name][ft]
-                    print(
-                        pad_right("", col_widths[0]) +
-                        pad_right(str(ft), col_widths[1]) +
-                        pad_left(f"{to_kib(size)} KiB", col_widths[2]) +
-                        pad_left(str(size), col_widths[3]))
+            for key, size in sizes[component_name].items():
+                obj_name = str(key)
+                while obj_name.startswith(component_name + '_'):
+                    obj_name = obj_name[len(component_name) + 1:]
+                print(
+                    pad_right("", col_widths[0]) +
+                    pad_right(str(obj_name), col_widths[1]) +
+                    pad_left(f"{to_kib(size)} KiB", col_widths[2]) +
+                    pad_left(str(size), col_widths[3]))
     print(
         pad_right("GRAND TOTAL", col_widths[0]) +
         pad_right("", col_widths[1]) +
@@ -164,6 +208,8 @@ def get_copy_region_component(frame_name: str) -> str:
 
 
 def to_kib(byte_count: int) -> int:
+    if 0 < byte_count < (1 << 10):
+        return 1
     return byte_count >> 10
 
 

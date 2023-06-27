@@ -28,7 +28,9 @@ mod convert;
 #[derive(clap::ValueEnum, Clone)]
 enum FileType {
     App = 0,
-    Model,
+    Model,  // Springbok for backwards compat
+    Springbok,  // Springbok IREE output
+    Kelvin,  // Kelvin workload
 }
 
 #[derive(Parser)]
@@ -84,8 +86,12 @@ fn main() -> Result<(), convert::ConversionError> {
             let count = convert::application(&elf, &mut output_file)?;
             info!("Wrote {} bytes.", count);
         }
-        FileType::Model => {
-            let count = convert::model(&elf, &mut output_file)?;
+        FileType::Model | FileType::Springbok => {
+            let count = convert::springbok::model(&elf, &mut output_file)?;
+            info!("Wrote {} bytes.", count);
+        }
+        FileType::Kelvin => {
+            let count = convert::kelvin::model(&elf, &mut output_file)?;
             info!("Wrote {} bytes.", count);
         }
     }

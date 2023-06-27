@@ -25,7 +25,7 @@
  *    fsize: u32    Length of data that follows (bytes)
  *    msize: u32    Size of memory region (bytes)
  *    align: u32    Section data alignment (bytes)
- *    pad: u32      <ignore, reserved for future use>
+ *    ftype: u32    File type (see below)
  *    crc32: u32    CRC32 of the data that follows
  *
  * Section header flags (mostly from ELF program section):
@@ -68,9 +68,6 @@ fn is_load_type(seg: &ProgramHeader) -> bool {
     }
 }
 
-/// Maximum memory size for TCM, used for model loading
-const TCM_SIZE: usize = 0x1000000;
-
 // TODO(sleffler): use runtime defs
 const MAGIC: u64 = 0x0405_1957_1014_1955;
 
@@ -78,6 +75,10 @@ const SECTION_READ: u32 = 0x1; // Data are readable
 const SECTION_WRITE: u32 = 0x2; // Data are writeable
 const SECTION_EXEC: u32 = 0x4; // Data are executable
 const SECTION_ENTRY: u32 = 0x8; // Entry point valid
+
+const FTYPE_APPLICATION: u32 = 0x0405_1957; // CantripOS application
+const FTYPE_SPRINGBOK: u32 = 0x1014_1955; // Springbok model
+const FTYPE_KELVIN: u32 = 0x0124_1998; // Kelvin model
 
 /// Given a set of ELF flags, convert into a set of flags for a section
 /// recognizable by the CantripOS ProcessManager's loader.
@@ -107,12 +108,13 @@ struct SectionHeader {
     fsize: u32,
     msize: u32,
     align: u32, // Section data alignment (bytes)
-    pad: u32,
+    ftype: u32, // File type
     crc32: u32,
 }
 
 impl SectionHeader {
     fn new(
+        ftype: u32,
         vaddr: u64,
         flags: u32,
         entry: u64,
@@ -133,7 +135,7 @@ impl SectionHeader {
             fsize: (fsize as u32).to_be(),
             msize: (msize as u32).to_be(),
             align: (align as u32).to_be(),
-            pad: 0,
+            ftype: ftype.to_be(),
             crc32: crc.to_be(),
         }
     }
@@ -150,31 +152,6 @@ impl SectionHeader {
         assert_eq!(u32::from_be(self.fsize) as usize, bytes.len());
         out.write(self.as_slice()).and_then(|_| out.write(bytes))
     }
-}
-
-/// The virtualized address of each loadable WMMU section (go/sparrow-vc-memory).
-const TEXT_VADDR: u64 = 0x80000000;
-const CONST_DATA_VADDR: u64 = 0x81000000;
-const MODEL_OUTPUT_VADDR: u64 = 0x82000000;
-const STATIC_DATA_VADDR: u64 = 0x83000000;
-const TEMP_DATA_VADDR: u64 = 0x85000000;
-
-/// Helpful conversion from a ModelSection to a string name of that address
-fn vaddr_as_str(vaddr: u64) -> &'static str {
-    match vaddr {
-        TEXT_VADDR => ".text",
-        CONST_DATA_VADDR => ".data",
-        MODEL_OUTPUT_VADDR => ".model_output",
-        STATIC_DATA_VADDR => ".static",
-        TEMP_DATA_VADDR => ".bss",
-        _ => "<unknown>",
-    }
-}
-
-/// Predicate to determine if a given vaddr is loadable in the TCM
-fn is_vaddr_in_tcm(vaddr: u64) -> bool {
-    matches!(vaddr, TEXT_VADDR | CONST_DATA_VADDR | MODEL_OUTPUT_VADDR | STATIC_DATA_VADDR
-             | TEMP_DATA_VADDR)
 }
 
 #[derive(Debug)]
@@ -211,14 +188,47 @@ impl From<std::io::Error> for ConversionError {
     }
 }
 
-/// Converts an ELF-format ML model into CantripOS' loadable format.
+pub mod springbok {
+/// Springbok support.
+
+use super::*;
+
+/// Maximum memory size for TCM, used for model loading
+const TCM_SIZE: usize = 0x1000000;
+
+/// The virtualized address of each loadable WMMU section (go/sparrow-vc-memory).
+const TEXT_VADDR: u64 = 0x80000000;
+const CONST_DATA_VADDR: u64 = 0x81000000;
+const MODEL_OUTPUT_VADDR: u64 = 0x82000000;
+const STATIC_DATA_VADDR: u64 = 0x83000000;
+const TEMP_DATA_VADDR: u64 = 0x85000000;
+
+/// Helpful conversion from a ModelSection to a string name of that address
+fn vaddr_as_str(vaddr: u64) -> &'static str {
+    match vaddr {
+        TEXT_VADDR => ".text",
+        CONST_DATA_VADDR => ".data",
+        MODEL_OUTPUT_VADDR => ".model_output",
+        STATIC_DATA_VADDR => ".static",
+        TEMP_DATA_VADDR => ".bss",
+        _ => "<unknown>",
+    }
+}
+
+/// Predicate to determine if a given vaddr is loadable in the TCM
+fn is_vaddr_in_tcm(vaddr: u64) -> bool {
+    matches!(vaddr, TEXT_VADDR | CONST_DATA_VADDR | MODEL_OUTPUT_VADDR | STATIC_DATA_VADDR
+             | TEMP_DATA_VADDR)
+}
+
+/// Converts an ELF-format ML (Springbok) model into CantripOS' loadable format.
 ///
 /// Returns the number of bytes written.
 pub fn model(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionError> {
     let entry = elf.header.pt2.entry_point();
     info!("ELF entry point is {:#x}", entry);
 
-    for seg in elf.program_iter().filter(is_load_type) {
+    for seg in elf.program_iter().filter(super::is_load_type) {
         let fsize = seg.file_size() as usize;
         let msize = seg.mem_size() as usize;
         let align = seg.align() as usize;
@@ -256,6 +266,7 @@ pub fn model(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionErr
             let mut digest = crc32::Digest::new(crc32::IEEE);
             digest.write(bytes);
             let section = SectionHeader::new(
+                FTYPE_SPRINGBOK,
                 seg.virtual_addr(),
                 flags,
                 entry,
@@ -278,6 +289,84 @@ pub fn model(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionErr
 
     Ok(output_file.stream_position()?)
 }
+
+} // springbok
+
+pub mod kelvin {
+/// Kelvin support.
+
+use super::*;
+
+/// Maximum memory size for TCM, used for model loading
+const TCM_SIZE: usize = 0x400000;
+
+/// Converts an ELF-format Kelvin workload into CantripOS' loadable format.
+///
+/// Returns the number of bytes written.
+pub fn model(elf: &ElfFile, output_file: &mut File) -> Result<u64, ConversionError> {
+    let entry = elf.header.pt2.entry_point() as usize;
+    info!("ELF entry point is {:#x}", entry);
+
+    for seg in elf.program_iter().filter(super::is_load_type) {
+        let fsize = seg.file_size() as usize;
+        let msize = seg.mem_size() as usize;
+        let align = seg.align() as usize;
+        let mut flags = to_section_flags(seg.flags());
+        let vaddr = seg.virtual_addr() as usize;
+        let segment_name = "LOAD"; // XXX
+
+        debug!("Processing new section [vaddr={:#x}, fsize={:#x}, msize={:#x}, align={:#x}, flags={:#b}]",
+               vaddr, fsize, msize, align, flags);
+
+        if let SegmentData::Undefined(bytes) = seg.get_data(elf)? {
+            if vaddr + msize >= TCM_SIZE {
+                return Err(ConversionError::SegmentOutsideTCM(vaddr as u64));
+            }
+
+            if vaddr <= entry &&  entry < vaddr + msize {
+                debug!(
+                    "Marking segment {} as entrypoint [vaddr={:#x}, entry={:#x}]",
+                    segment_name, vaddr, entry
+                );
+                flags |= SECTION_ENTRY;
+            }
+
+            debug!(
+                "Processing {} segment [len={}, addr={:#x}, msize={}]",
+                segment_name,
+                bytes.len(),
+                vaddr,
+                msize
+            );
+
+            let mut digest = crc32::Digest::new(crc32::IEEE);
+            digest.write(bytes);
+            let section = SectionHeader::new(
+                FTYPE_KELVIN,
+                seg.virtual_addr(),
+                flags,
+                entry as u64,
+                align,
+                digest.sum32(),
+                fsize,
+                msize,
+            );
+
+            section.write(output_file, bytes)?;
+            info!(
+                "Wrote {} segment of {} bytes at {:#x} msize {}",
+                segment_name,
+                bytes.len(),
+                seg.virtual_addr(),
+                msize
+            );
+        }
+    }
+
+    Ok(output_file.stream_position()?)
+}
+
+} // kelvin
 
 /// Converts an ELF-format application binary into CantripOS' loadable format.
 ///
@@ -309,6 +398,7 @@ pub fn application(elf: &ElfFile, output_file: &mut File) -> Result<u64, Convers
             let mut digest = crc32::Digest::new(crc32::IEEE);
             digest.write(bytes);
             let header = SectionHeader::new(
+                FTYPE_APPLICATION,
                 seg.virtual_addr(),
                 flags,
                 entry,
